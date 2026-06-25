@@ -62,10 +62,6 @@ python3 -m http.server
 # then open http://localhost:8000/
 ```
 
-**Deploy on GitHub Pages:**
-
-Settings → Pages → Build and deployment → Source: **Deploy from a branch** → Branch: **main** / **/(root)** → Save. Because the tool is named `index.html`, it loads directly at your Pages URL — and Pages is served over HTTPS, so the webcam works with no extra steps.
-
 ## Browser support
 
 Needs a browser with `getUserMedia` and `ResizeObserver` (any current Chrome, Firefox, Edge, or Safari). Works on mobile too, though a laptop is usually easier for reading the printer's coordinates side-by-side.
