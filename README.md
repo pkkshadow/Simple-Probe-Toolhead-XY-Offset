@@ -8,22 +8,6 @@ A tiny, single-file web tool that measures the **XY offset between your nozzle a
 
 ---
 
-## Live demo
-
-If you enable GitHub Pages for this repo (see [Deploy](#deploy-on-github-pages)), the tool runs straight from:
-
-```
-https://<your-username>.github.io/<repo-name>/
-```
-
-*(Replace with your actual URL once Pages is on, then delete this line.)*
-
-## Screenshot
-
-*(Add one here — a photo of the reticle over your nozzle reads better than any description. Drop the image in the repo and reference it: `![screenshot](screenshot.png)`)*
-
----
-
 ## Why
 
 The XY offset between an inductive probe and the nozzle is usually measured with calipers, which gets you to maybe ±0.5–1&nbsp;mm. That's enough to make a bed mesh land slightly off where you think it is. A camera fixed in space gives you a repeatable reference point, so you're comparing two real machine positions instead of eyeballing a ruler.
