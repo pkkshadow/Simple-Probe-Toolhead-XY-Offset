@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<!--
+  Reticle — Probe XY Offset Calibrator
+  Webcam-assisted XY offset measurement for inductive bed probes (Klipper).
+
+  MIT License
+
+  Copyright (c) 2026 CephalonShade
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reticle — Probe XY Offset</title>
+<style>
+  :root{
+    --bg:#0c1011;          /* instrument panel */
+    --panel:#121819;
+    --raised:#18201f;
+    --line:#22302f;        /* hairline graticule */
+    --text:#dce5e3;
+    --dim:#6f8482;
+    --green:#5ef2a0;       /* phosphor reticle */
+    --green-dim:#2f7d57;
+    --amber:#ffb454;       /* locked / captured */
+    --amber-dim:#7a5320;
+    --rad:6px;
+  }
+  *{box-sizing:border-box}
+  html{color-scheme:dark}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    line-height:1.5;
+    background-image:
+      linear-gradient(var(--line) 1px,transparent 1px),
+      linear-gradient(90deg,var(--line) 1px,transparent 1px);
+    background-size:32px 32px;
+    background-position:center;
+  }
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+
+  header{
+    padding:16px 20px;border-bottom:1px solid var(--line);
+    background:rgba(12,16,17,.82);backdrop-filter:blur(3px);
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  }
+  header h1{
+    font-size:15px;margin:0;letter-spacing:.22em;text-transform:uppercase;font-weight:600;
+  }
+  header h1 b{color:var(--green);font-weight:600}
+  header .sub{color:var(--dim);font-size:12px;letter-spacing:.04em}
+
+  .wrap{display:flex;gap:18px;padding:18px;flex-wrap:wrap;align-items:flex-start;max-width:1180px;margin:0 auto}
+  .camcol{flex:1 1 500px;min-width:320px}
+  .sidecol{flex:0 1 372px;min-width:300px}
+
+  .stage{
+    position:relative;background:#000;border:1px solid var(--line);
+    border-radius:var(--rad);overflow:hidden;aspect-ratio:4/3;
+    box-shadow:inset 0 0 0 1px rgba(94,242,160,.05);
+  }
+  video,#reticle{position:absolute;inset:0;width:100%;height:100%}
+  video{object-fit:cover;background:#000}
+  #reticle{cursor:crosshair;touch-action:none}
+  .badge{
+    position:absolute;top:8px;left:8px;z-index:2;
+    font-size:11px;letter-spacing:.08em;padding:3px 8px;border-radius:99px;
+    border:1px solid var(--line);background:rgba(12,16,17,.75);color:var(--dim);
+  }
+  .badge.locked{color:var(--amber);border-color:var(--amber-dim)}
+
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center}
+  button,select{
+    background:var(--raised);color:var(--text);border:1px solid var(--line);
+    padding:8px 12px;border-radius:var(--rad);font:inherit;font-size:13px;cursor:pointer;
+    transition:border-color .12s ease,background .12s ease;
+  }
+  button:hover{border-color:var(--green-dim)}
+  button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  button.primary{background:var(--green);color:#06251a;border-color:var(--green);font-weight:600}
+  button.primary:hover{background:#76f7b1}
+  button.on{border-color:var(--amber);color:var(--amber)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  label.ctl{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim)}
+  input[type=range]{width:108px;accent-color:var(--green)}
+  .hint{color:var(--dim);font-size:12px;margin-top:12px}
+  .hint b{color:var(--text);font-weight:600}
+  kbd{font-family:ui-monospace,monospace;font-size:11px;background:var(--raised);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);padding:15px;margin-bottom:15px}
+  .card h2{
+    font-size:11px;margin:0 0 12px;color:var(--green);letter-spacing:.16em;text-transform:uppercase;font-weight:600;
+    display:flex;align-items:center;gap:8px;
+  }
+  .card h2 .num{
+    width:18px;height:18px;flex:none;display:grid;place-items:center;border-radius:4px;
+    background:var(--raised);border:1px solid var(--green-dim);color:var(--green);font-size:11px;
+  }
+  ol.steps{margin:0;padding-left:20px;font-size:12.5px;color:var(--dim)}
+  ol.steps li{margin-bottom:6px}
+  ol.steps b{color:var(--text);font-weight:600}
+
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .row label{width:48px;color:var(--dim);font-size:12px}
+  .row input[type=number]{
+    flex:1;background:var(--bg);border:1px solid var(--line);color:var(--text);
+    padding:8px 9px;border-radius:5px;font:inherit;font-family:ui-monospace,monospace;font-size:13px;
+  }
+  .twobtn{display:flex;gap:8px;margin-top:2px}
+  .twobtn button{flex:1}
+  .ghost{background:transparent;color:var(--dim)}
+  .ghost:hover{border-color:var(--line);color:var(--text)}
+
+  .readout{
+    margin-top:11px;padding:9px 11px;border:1px dashed var(--line);border-radius:5px;
+    font-family:ui-monospace,monospace;font-size:12.5px;color:var(--dim);min-height:38px;
+  }
+  .readout.has{color:var(--amber);border-color:var(--amber-dim);border-style:solid}
+  .readout .n{color:var(--green)}
+  .readout .sp{color:var(--dim)}
+
+  .offset{display:flex;gap:18px;margin-bottom:13px;flex-wrap:wrap}
+  .offset .o{flex:1;min-width:110px;background:var(--bg);border:1px solid var(--line);border-radius:var(--rad);padding:11px 13px}
+  .offset .o .k{font-size:11px;color:var(--dim);letter-spacing:.08em;text-transform:uppercase}
+  .offset .o .v{font-family:ui-monospace,monospace;font-size:23px;color:var(--green);margin-top:3px;font-weight:600}
+  .offset .o .v.pending{color:var(--dim);font-weight:400}
+
+  pre.cfg{
+    background:var(--bg);border:1px solid var(--line);border-radius:var(--rad);
+    padding:12px;margin:0;font-family:ui-monospace,monospace;font-size:12.5px;
+    white-space:pre;overflow-x:auto;color:var(--text);
+  }
+  pre.cfg .c{color:var(--dim)}
+  pre.cfg .key{color:var(--green)}
+  .note{color:var(--dim);font-size:12px;margin-top:11px}
+  .note b{color:var(--amber);font-weight:600}
+  .copied{color:var(--green)!important}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1><b>RETICLE</b> · PROBE XY OFFSET</h1>
+  <span class="sub mono">webcam optical alignment · inductive probe · Klipper</span>
+</header>
+
+<div class="wrap">
+  <!-- CAMERA / RETICLE -->
+  <div class="camcol">
+    <div class="stage">
+      <div id="lockBadge" class="badge mono">RETICLE FREE</div>
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="reticle"></canvas>
+    </div>
+
+    <div class="controls">
+      <button id="startBtn" class="primary">Start camera</button>
+      <select id="camSelect" title="Camera source"></select>
+      <button id="freezeBtn">Freeze</button>
+      <button id="mirrorBtn" title="Flip image horizontally (visual only)">Mirror</button>
+    </div>
+
+    <div class="controls">
+      <label class="ctl">Zoom <input id="zoom" type="range" min="1" max="8" step="0.1" value="1"></label>
+      <label class="ctl">Reticle <input id="chSize" type="range" min="24" max="340" step="2" value="130"></label>
+      <button id="lockBtn">Lock reticle</button>
+    </div>
+
+    <p class="hint">
+      Point the camera straight up at the nozzle. Drag the reticle onto a spot near center, then
+      <b>lock it</b> — from here you only jog the printer, never the reticle. Nudge with
+      <kbd>← ↑ → ↓</kbd> (hold <kbd>Shift</kbd> for coarse). Zoom centers on the reticle.
+    </p>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="sidecol">
+    <div class="card">
+      <h2>Method</h2>
+      <ol class="steps">
+        <li>Aim camera up at the toolhead, focus on the nozzle, place &amp; lock the reticle.</li>
+        <li>Jog so the <b>nozzle tip</b> sits on the reticle. Enter that X/Y, <b>Add sample</b>. Repeat 2–3× for a tighter average.</li>
+        <li>Jog so the <b>center of the sensor face</b> sits on the reticle. Enter X/Y, <b>Add sample</b>.</li>
+        <li>Read the offset below and copy the config.</li>
+      </ol>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">1</span> Nozzle samples</h2>
+      <div class="row"><label>X mm</label><input id="nozX" class="mono" type="number" step="0.001" placeholder="from GET_POSITION"></div>
+      <div class="row"><label>Y mm</label><input id="nozY" class="mono" type="number" step="0.001" placeholder="toolhead X / Y"></div>
+      <div class="twobtn">
+        <button id="addNoz">Add nozzle sample</button>
+        <button id="clrNoz" class="ghost" title="Clear nozzle samples">Reset</button>
+      </div>
+      <div id="nozOut" class="readout mono">No samples yet.</div>
+    </div>
+
+    <div class="card">
+      <h2><span class="num">2</span> Probe samples</h2>
+      <div class="row"><label>X mm</label><input id="prbX" class="mono" type="number" step="0.001" placeholder="sensor centered"></div>
+      <div class="row"><label>Y mm</label><input id="prbY" class="mono" type="number" step="0.001"></div>
+      <div class="twobtn">
+        <button id="addPrb">Add probe sample</button>
+        <button id="clrPrb" class="ghost" title="Clear probe samples">Reset</button>
+      </div>
+      <div id="prbOut" class="readout mono">No samples yet.</div>
+    </div>
+
+    <div class="card">
+      <h2>Result</h2>
+      <div class="offset">
+        <div class="o"><div class="k">x_offset</div><div id="xoVal" class="v pending">—</div></div>
+        <div class="o"><div class="k">y_offset</div><div id="yoVal" class="v pending">—</div></div>
+      </div>
+      <pre id="cfg" class="cfg"><span class="c"># add a nozzle sample and a probe sample</span></pre>
+      <button id="copyBtn" disabled style="margin-top:10px">Copy config</button>
+      <p class="note" id="signNote"></p>
+      <p class="note mono" style="color:var(--dim)">Z offset is separate — use Klipper <span style="color:var(--text)">PROBE_CALIBRATE</span> for that.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const video = $('video'), canvas = $('reticle'), ctx = canvas.getContext('2d');
+
+  const S = {
+    stream:null, frozen:false, locked:false, mirror:false,
+    zoom:1, size:130,
+    cross:{x:0.5, y:0.5},            // normalized 0..1, position on screen
+    samples:{ noz:[], prb:[] }
+  };
+
+  /* ---------- canvas sizing (dpr-aware, event-driven) ---------- */
+  function fitCanvas(){
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if(!w || !h) return;
+    canvas.width = Math.round(w*dpr);
+    canvas.height = Math.round(h*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    render();
+  }
+  new ResizeObserver(fitCanvas).observe(canvas);
+
+  /* ---------- reticle render (only on change) ---------- */
+  function render(){
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+    const cx = S.cross.x*w, cy = S.cross.y*h, s = S.size;
+    const col = S.locked ? '#ffb454' : '#5ef2a0';
+    const r = s/2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // faint outer ring
+    ctx.strokeStyle = S.locked ? 'rgba(255,180,84,.30)' : 'rgba(94,242,160,.28)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke();
+
+    // graduated tick ring
+    ctx.strokeStyle = S.locked ? 'rgba(255,180,84,.55)' : 'rgba(94,242,160,.5)';
+    for(let i=0;i<72;i++){
+      const a=i*Math.PI/36, major=(i%9===0);
+      const r1=r-(major?9:4), r2=r;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*r1, Math.sin(a)*r1);
+      ctx.lineTo(Math.cos(a)*r2, Math.sin(a)*r2);
+      ctx.stroke();
+    }
+
+    // inner ring
+    ctx.strokeStyle = col; ctx.lineWidth = 1.25;
+    ctx.beginPath(); ctx.arc(0,0,r*0.16,0,Math.PI*2); ctx.stroke();
+
+    // crosshair w/ center gap
+    const gap=r*0.16;
+    ctx.beginPath();
+    ctx.moveTo(-r,0); ctx.lineTo(-gap,0);
+    ctx.moveTo(gap,0); ctx.lineTo(r,0);
+    ctx.moveTo(0,-r); ctx.lineTo(0,-gap);
+    ctx.moveTo(0,gap); ctx.lineTo(0,r);
+    ctx.stroke();
+
+    // center pip
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(0,0,1.6,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  /* ---------- video transform (zoom pivots on reticle) ---------- */
+  function applyTransform(){
+    video.style.transformOrigin = `${S.cross.x*100}% ${S.cross.y*100}%`;
+    video.style.transform = `${S.mirror?'scaleX(-1) ':''}scale(${S.zoom})`;
+  }
+
+  /* ---------- camera ---------- */
+  async function listCams(){
+    try{
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const cams = devs.filter(d=>d.kind==='videoinput');
+      const cur = $('camSelect').value;
+      $('camSelect').innerHTML='';
+      cams.forEach((c,i)=>{
+        const o=document.createElement('option');
+        o.value=c.deviceId; o.textContent=c.label||('Camera '+(i+1));
+        $('camSelect').appendChild(o);
+      });
+      if(cur) $('camSelect').value=cur;
+    }catch(e){/* ignore */}
+  }
+  async function startCam(deviceId){
+    if(S.stream) S.stream.getTracks().forEach(t=>t.stop());
+    S.stream = await navigator.mediaDevices.getUserMedia({
+      video: deviceId ? {deviceId:{exact:deviceId}} : {width:{ideal:1280},height:{ideal:960}},
+      audio:false
+    });
+    video.srcObject = S.stream;
+    S.frozen=false; $('freezeBtn').textContent='Freeze';
+    await listCams();
+  }
+  $('startBtn').onclick = async () => {
+    try{
+      await startCam($('camSelect').value||null);
+      $('startBtn').textContent='Restart';
+    }catch(e){
+      alert('Camera unavailable: '+e.message+
+        '\n\nBrowsers only grant webcam access over https:// or http://localhost. '+
+        'If opening this file directly is blocked, run a local server in its folder:\n\n'+
+        '    python3 -m http.server\n\nthen open http://localhost:8000/'+location.pathname.split('/').pop());
+    }
+  };
+  $('camSelect').onchange = () => { if(S.stream) startCam($('camSelect').value); };
+  $('freezeBtn').onclick = () => {
+    S.frozen=!S.frozen;
+    $('freezeBtn').textContent = S.frozen?'Unfreeze':'Freeze';
+    S.frozen ? video.pause() : video.play();
+  };
+  $('mirrorBtn').onclick = () => {
+    S.mirror=!S.mirror;
+    $('mirrorBtn').classList.toggle('on',S.mirror);
+    applyTransform();
+  };
+
+  /* ---------- sliders ---------- */
+  $('zoom').oninput = e => { S.zoom=+e.target.value; applyTransform(); };
+  $('chSize').oninput = e => { S.size=+e.target.value; render(); };
+
+  /* ---------- lock ---------- */
+  function setLock(v){
+    S.locked=v;
+    $('lockBtn').textContent = v?'Unlock reticle':'Lock reticle';
+    $('lockBtn').classList.toggle('on',v);
+    const b=$('lockBadge');
+    b.textContent = v?'RETICLE LOCKED':'RETICLE FREE';
+    b.classList.toggle('locked',v);
+    render();
+  }
+  $('lockBtn').onclick = () => setLock(!S.locked);
+
+  /* ---------- drag (disabled when locked) ---------- */
+  let dragging=false;
+  function moveTo(e){
+    const r=canvas.getBoundingClientRect();
+    const p=e.touches?e.touches[0]:e;
+    S.cross.x=Math.min(1,Math.max(0,(p.clientX-r.left)/r.width));
+    S.cross.y=Math.min(1,Math.max(0,(p.clientY-r.top)/r.height));
+    applyTransform(); render();
+  }
+  canvas.addEventListener('pointerdown', e=>{ if(S.locked) return; dragging=true; canvas.setPointerCapture(e.pointerId); moveTo(e); });
+  canvas.addEventListener('pointermove', e=>{ if(dragging) moveTo(e); });
+  canvas.addEventListener('pointerup', e=>{ dragging=false; });
+
+  /* ---------- arrow-key nudge ---------- */
+  window.addEventListener('keydown', e=>{
+    if(/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+    const k={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
+    if(!k) return;
+    e.preventDefault();
+    const step=e.shiftKey?10:1;
+    S.cross.x=Math.min(1,Math.max(0,S.cross.x + k[0]*step/canvas.clientWidth));
+    S.cross.y=Math.min(1,Math.max(0,S.cross.y + k[1]*step/canvas.clientHeight));
+    applyTransform(); render();
+  });
+
+  /* ---------- samples + stats ---------- */
+  const mean = a => a.reduce((p,c)=>p+c,0)/a.length;
+  function stat(arr){
+    if(!arr.length) return null;
+    const xs=arr.map(s=>s.x), ys=arr.map(s=>s.y);
+    const range = a => a.length>1 ? Math.max(...a)-Math.min(...a) : 0;
+    return {x:mean(xs),y:mean(ys),sx:range(xs),sy:range(ys),n:arr.length};
+  }
+  function num(id){ const v=parseFloat($(id).value); return Number.isFinite(v)?v:null; }
+
+  function renderSamples(which){
+    const arr = which==='noz'?S.samples.noz:S.samples.prb;
+    const out = $(which==='noz'?'nozOut':'prbOut');
+    const st = stat(arr);
+    if(!st){ out.className='readout mono'; out.textContent='No samples yet.'; return; }
+    out.className='readout mono has';
+    out.innerHTML =
+      `<span class="n">n=${st.n}</span>  `+
+      `X ${st.x.toFixed(3)} <span class="sp">±${st.sx.toFixed(3)}</span>   `+
+      `Y ${st.y.toFixed(3)} <span class="sp">±${st.sy.toFixed(3)}</span>`;
+  }
+
+  function addSample(which){
+    const xi=which==='noz'?'nozX':'prbX', yi=which==='noz'?'nozY':'prbY';
+    const x=num(xi), y=num(yi);
+    if(x===null||y===null){
+      const out=$(which==='noz'?'nozOut':'prbOut');
+      out.className='readout mono'; out.style.color='var(--amber)';
+      out.textContent='Enter both X and Y first.';
+      return;
+    }
+    (which==='noz'?S.samples.noz:S.samples.prb).push({x,y});
+    $(xi).value=''; $(yi).value=''; $(xi).focus();
+    renderSamples(which); compute();
+  }
+  $('addNoz').onclick = ()=>addSample('noz');
+  $('addPrb').onclick = ()=>addSample('prb');
+  $('clrNoz').onclick = ()=>{ S.samples.noz=[]; renderSamples('noz'); compute(); };
+  $('clrPrb').onclick = ()=>{ S.samples.prb=[]; renderSamples('prb'); compute(); };
+
+  /* ---------- compute offset (Klipper: nozzle - probe) ---------- */
+  let cfgText='';
+  function compute(){
+    const N=stat(S.samples.noz), P=stat(S.samples.prb);
+    const xo=$('xoVal'), yo=$('yoVal');
+    if(!N||!P){
+      xo.textContent='—'; xo.className='v pending';
+      yo.textContent='—'; yo.className='v pending';
+      $('cfg').innerHTML='<span class="c"># add a nozzle sample and a probe sample</span>';
+      $('copyBtn').disabled=true; $('signNote').textContent='';
+      return;
+    }
+    const dx=N.x-P.x, dy=N.y-P.y;
+    xo.textContent=dx.toFixed(3); xo.className='v';
+    yo.textContent=dy.toFixed(3); yo.className='v';
+
+    cfgText =
+`# webcam XY offset  (Klipper: offset = nozzle - probe)
+[probe]
+x_offset: ${dx.toFixed(3)}
+y_offset: ${dy.toFixed(3)}`;
+    $('cfg').innerHTML =
+`<span class="c"># webcam XY offset  (Klipper: offset = nozzle - probe)</span>
+[probe]
+<span class="key">x_offset:</span> ${dx.toFixed(3)}
+<span class="key">y_offset:</span> ${dy.toFixed(3)}`;
+    $('copyBtn').disabled=false;
+
+    const xdir = dx>0?'left (−X)':(dx<0?'right (+X)':'centered in X');
+    const ydir = dy>0?'front (−Y)':(dy<0?'back (+Y)':'centered in Y');
+    $('signNote').innerHTML =
+      `These signs follow Klipper's convention. With this result the probe sits to the `+
+      `<b>${xdir}</b> and <b>${ydir}</b> of the nozzle. `+
+      `If a fresh mesh looks mirrored, flip a sign and re-test.`;
+  }
+
+  /* ---------- copy ---------- */
+  $('copyBtn').onclick = () => {
+    navigator.clipboard.writeText(cfgText).then(()=>{
+      const b=$('copyBtn'); b.textContent='Copied'; b.classList.add('copied');
+      setTimeout(()=>{ b.textContent='Copy config'; b.classList.remove('copied'); },1200);
+    });
+  };
+
+  /* ---------- init ---------- */
+  fitCanvas(); applyTransform();
+})();
+</script>
+</body>
+</html>
